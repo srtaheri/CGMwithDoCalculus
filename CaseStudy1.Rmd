@@ -1,6 +1,6 @@
 ---
 title: "Gaussian Model Trained with Unconstrained HMC"
-author: "Sara Taheri"
+author: ""
 date: "`r Sys.Date()`"
 output: rmarkdown::html_vignette
 vignette: >

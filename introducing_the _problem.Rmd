@@ -1,6 +1,6 @@
 ---
-title: "Creating Training Data and True Parameters"
-author: "Sara Taheri"
+title: "Creating Training Data and True Parameters for Case study 1"
+author: ""
 date: "6/10/2020"
 output: html_document
 ---
