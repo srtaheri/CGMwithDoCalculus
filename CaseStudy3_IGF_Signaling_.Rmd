@@ -1,0 +1,825 @@
+---
+title: "Case study 3 : IGF case study"
+author: "Sara Taheri"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+library(rstan)
+library(ggplot2)
+library(ggplot2)
+library(tidyr)
+library(tibble)
+library(smfsb)
+library(dplyr)
+```
+
+```{r}
+D = 300
+startSeed = 1
+K = 10
+ndp <- c(30, 60, 100, 140, 200) #number of data points
+```
+
+
+# Create observational and interventional data
+
+```{r}
+
+#####################################################################################################
+######################################### SDE #######################################################
+#####################################################################################################
+# PRE <- as.matrix(read.csv('growth_factor_sheets/growth_factor/Values-Pre.csv', header = TRUE))
+# POST <- as.matrix(read.csv('growth_factor_sheets/growth_factor/Values-Post.csv', header = TRUE))
+# 
+# gf_sde <- function(states, rates, interventions = NULL){
+#   sde <- list()
+#   
+#   sde$Pre <- PRE
+#   sde$Post <- POST
+#   
+#   innerIntervention <- interventions
+#   
+#   sde$h <- function(states, t, parameters=rates, interventions = innerIntervention){
+#     # update the initial states
+#     if(!is.null(interventions)) {
+#       for(int in names(interventions)){
+#         states[[int]] <- interventions[[int]]
+#       }
+#     }
+#     with(as.list(c(states, parameters, interventions)), {
+#       if(!is.null(interventions)) {
+#         for(int in names(interventions)){
+#           sde$Pre[,int] <- 0
+#           sde$Post[,int] <- 0
+#         }
+#       }
+#       out <- c(
+#         SOS_activation_by_EGFR * SOS_inactive * EGFR,
+#         SOS_activation_by_IGFR * SOS_inactive * IGFR,
+#         SOS_deactivation * SOS_active,
+#         Ras_activation_by_SOS * Ras_inactive * SOS_active,
+#         Ras_deactivation * Ras_active,
+#         PI3K_activation_by_EGFR * PI3K_inactive * EGFR,
+#         PI3K_activation_by_IGFR * PI3K_inactive * IGFR,
+#         PI3K_activation_by_Ras * PI3K_inactive * Ras_active,
+#         PI3K_deactivation * PI3K_active,
+#         AKT_activation_by_PI3K * AKT_inactive * PI3K_active,
+#         AKT_deactivation * AKT_active,
+#         Raf_activation_by_Ras * Raf_inactive * Ras_active,
+#         Raf_deactivation_by_phosphotase * Raf_active,
+#         Raf_deactivation_by_AKT * AKT_active * Raf_active,
+#         Mek_activation_by_Raf * Mek_inactive * Raf_active,
+#         Mek_deactivation * Mek_active,
+#         Erk_activation_by_Mek * Erk_inactive * Mek_active,
+#         Erk_deactivation * Erk_active
+#       )
+#       names(out) <- c("SOS_inactive_to_SOS_active","SOS_inactive_to_SOS_active","SOS_active_to_SOS_inactive",
+#                        "Ras_inactive_to_Ras_active", "Ras_active_to_Ras_inactive",
+#                       "PI3K_inactive_to_PI3K_active","PI3K_inactive_to_PI3K_active","PI3K_inactive_to_PI3K_active","PI3K_active_to_PI3K_inactive",
+#                       "AKT_inactive_to_AKT_active","AKT_active_to_AKT_inactive",
+#                       "Raf_inactive_to_Raf_active", "Raf_active_to_Raf_inactive", "Raf_active_to_Raf_inactive",
+#                       "Mek_inactive_to_Mek_active", "Mek_active_to_Mek_inactive",
+#                       "Erk_inactive_to_Erk_active", "Erk_active_to_Erk_inactive")
+#       if(!is.null(interventions)) {
+#         for(int in names(interventions)){
+#           out[which(grepl(int, names(out), ignore.case = TRUE) == TRUE)] <- 0
+#         }
+#       }
+#       out <- unname(out)
+#       
+#       return(out)
+#     })
+#   }
+#   transition_function <- StepGillespie(sde)
+#   return(transition_function)
+# }
+# 
+# sde_sim <- function(transition_function, initial_states, times, interventions = NULL) {
+#   if(!is.null(interventions)) {
+#     for(int in names(interventions)){
+#       initial_states[[int]] <- interventions[[int]]
+#     }
+#   }
+#   initial_states <- structure(as.numeric(initial_states), names = names(initial_states))
+#   t_delta <- times[2] - times[1]
+#   out <- as_tibble(
+#     smfsb::simTs(initial_states, times[1], times[length(times)], t_delta, transition_function)
+#   )
+#   out$time <- times[0:(length(times)-1)]
+#   out <- out[, c('time', setdiff(names(out), 'time'))]
+#   return(out)
+# }
+# 
+# # create observational and interventional data from SDE when number of phosphorylated SOS = 70
+# 
+# rates <- list(
+#   SOS_activation_by_EGFR=.01,
+#   SOS_activation_by_IGFR=.01,
+#   SOS_deactivation=.5,
+#   Ras_activation_by_SOS=.01,
+#   Ras_deactivation=.5,
+#   PI3K_activation_by_EGFR=.01,
+#   PI3K_activation_by_IGFR=.01,
+#   PI3K_activation_by_Ras=.01,
+#   PI3K_deactivation=.5,
+#   AKT_activation_by_PI3K=.01,
+#   AKT_deactivation=.5,
+#   Raf_activation_by_Ras=.01,
+#   Raf_deactivation_by_AKT=.01,
+#   Raf_deactivation_by_phosphotase=.3,
+#   Mek_activation_by_Raf=.05,
+#   Mek_deactivation=.5,
+#   Erk_activation_by_Mek=.05,
+#   Erk_deactivation=.5
+# )
+# 
+# observational_data_list <- list()
+# intervention_data_list <- list()
+# 
+# for (seed in startSeed:(startSeed+K-1)) {
+#   set.seed(seed)
+#   observational_data <- data.frame("time" = 0, "EGFR" = 0, "IGFR" = 0, "SOS_inactive" = 0, "SOS_active" = 0,
+#                                    "Ras_inactive" = 0, "Ras_active" = 0,"PI3K_inactive" = 0, "PI3K_active" = 0,
+#                                    "AKT_inactive" = 0, "AKT_active" = 0,"Raf_inactive" = 0, "Raf_active" = 0,
+#                                    "Mek_inactive" = 0,"Mek_active" = 0, "Erk_inactive" = 0, "Erk_active" = 0)
+#   intervention_data <- observational_data
+#   
+#   EGFR_r <- rnorm(D,37,3)
+#   IGFR_r <- rnorm(D,5,1)
+#   for (i in 1:D) {
+#     initial_states <-  list(
+#       EGFR=EGFR_r[i],
+#       IGFR=IGFR_r[i],
+#       SOS_inactive=100,
+#       SOS_active=0,
+#       Ras_inactive=100,
+#       Ras_active=0,
+#       PI3K_inactive=100,
+#       PI3K_active=0,
+#       AKT_inactive=100,
+#       AKT_active=0,
+#       Raf_inactive=100,
+#       Raf_active=0,
+#       Mek_inactive=100,
+#       Mek_active=0,
+#       Erk_inactive=100,
+#       Erk_active=0
+#     )
+#     set.seed(i)
+#     times <- seq(0, 1, by = .1)
+#     faster_rates <- lapply(rates, `*`, 20)
+#     
+#     stoc_transition_func <- gf_sde(initial_states, faster_rates,interventions = NULL)
+#     sde_out <- sde_sim(stoc_transition_func, initial_states, times,interventions = NULL)
+#     observational_data <- rbind(observational_data,sde_out[nrow(sde_out),])
+#     
+#     stoc_transition_func <- gf_sde(initial_states, faster_rates,interventions = list(SOS_inactive=30, SOS_active=70))
+#     sde_out <- sde_sim(stoc_transition_func, initial_states, times,interventions = list(SOS_inactive=30, SOS_active=70))
+#     intervention_data <- rbind(intervention_data,sde_out[nrow(sde_out),])
+#   }
+#   observational_data <- observational_data[,c("EGFR","IGFR","SOS_active","Ras_active","PI3K_active","AKT_active","Raf_active","Mek_active","Erk_active")]
+#   colnames(observational_data) <- c("EGFR","IGFR","SOS","Ras","PI3K","AKT","Raf","Mek","Erk")
+#   observational_data <- observational_data[-1,]
+#   rownames(observational_data) <- seq(1:D)
+#   
+#   intervention_data <- intervention_data[,c("EGFR","IGFR","SOS_active","Ras_active","PI3K_active","AKT_active","Raf_active","Mek_active","Erk_active")]
+#   colnames(intervention_data) <- c("EGFR","IGFR","SOS","Ras","PI3K","AKT","Raf","Mek","Erk")
+#   intervention_data <- intervention_data[-1,]
+#   rownames(intervention_data) <- seq(1:D)
+#   
+#   observational_data_list[[seed]] <- observational_data
+#   intervention_data_list[[seed]] <- intervention_data
+# }
+# 
+# saveRDS(observational_data_list,"data/Case3/observationalD_igfSOS70.RData") #save observational data
+# saveRDS(intervention_data_list,"data/Case3/interventionD_igf_SOS70.RData") #save intervention data
+
+```
+
+Once we create the data, we will save them in data folder and from now on, we only read the data from the data folder.
+
+```{r}
+observational_data_list <- readRDS("data/Case3/observationalD_igfSOS70.RData")
+intervention_data_list <- readRDS("data/Case3/interventionD_igf_SOS70.RData")
+```
+
+# IGF case study Stan model where IGF, EGF and PI3K are hidden
+
+```{r}
+model_str_IGF <- "
+    data {
+        int D;
+        vector[D] SOS_train;
+        vector[D] AKT_train;
+        vector[D] Raf_train;
+        vector[D] Mek_train;
+        vector[D] Erk_train;
+        vector[D] Ras_train;
+    }
+  parameters {
+       real<lower=0> mu_EGF; 
+       real<lower=0> sigma_EGF;
+       real<lower=0> mu_IGF; 
+       real<lower=0> sigma_IGF;
+       real beta0_EGFIGFToSOS; 
+       real<lower=0> beta_EGFToSOS;
+       real<lower=0> beta_IGFToSOS;
+       real beta0_SOSToRas;
+       real<lower=0> beta_SOSToRas;
+       real beta0_AKT;
+       real<lower=0> beta_EGFToAKT;
+       real<lower=0> beta_IGFToAKT;
+       real<lower=0> beta_RasToAKT;
+       real beta0_RasAKTToRaf;
+       real<lower=0> beta_RasToRaf;
+       real<upper=0> beta_AKTToRaf;
+       real beta0_RafToMek;
+       real<lower=0> beta_RafToMek;
+       real beta0_MekT0Erk;
+       real<lower=0> beta_MekT0Erk;
+       vector[D] EGF_train;
+       vector[D] IGF_train;
+    }
+    transformed parameters {
+      vector[D] SOS_loc;
+      vector[D] Ras_loc;
+      vector[D] AKT_loc;
+      vector[D] Raf_loc;
+      vector[D] Mek_loc;
+      vector[D] Erk_loc;
+      for (i in 1:D){
+        SOS_loc[i] = 100 / (1 + exp(-beta0_EGFIGFToSOS - EGF_train[i] * beta_EGFToSOS - IGF_train[i] * beta_IGFToSOS));
+        Ras_loc[i] = 100 / (1 + exp(-beta0_SOSToRas -SOS_train[i] * beta_SOSToRas));
+        AKT_loc[i] = 100 / (1 + exp(-beta0_AKT - EGF_train[i] * beta_EGFToAKT - IGF_train[i] * beta_IGFToAKT - Ras_train[i] * beta_RasToAKT));
+        Raf_loc[i] = 100 / (1 + exp(-beta0_RasAKTToRaf - Ras_train[i] * beta_RasToRaf - AKT_train[i] * beta_AKTToRaf));
+        Mek_loc[i] = 100 / (1 + exp(-beta0_RafToMek - Raf_train[i] * beta_RafToMek));
+        Erk_loc[i] = 100 / (1 + exp(-beta0_MekT0Erk - Mek_train[i] * beta_MekT0Erk));
+      }
+    }
+    model {
+        beta0_EGFIGFToSOS  ~ normal(0, 10); 
+        beta_EGFToSOS  ~ normal(0, 10);
+        beta_IGFToSOS  ~ normal(0, 10);
+        mu_EGF ~ normal(37, 3);
+        sigma_EGF ~ normal(1,1);
+        mu_IGF ~ normal(5, 1);
+        sigma_IGF ~ normal(1,1);
+        beta0_SOSToRas ~ normal(0,10);
+        beta_SOSToRas ~ normal(0, 10);
+        beta0_AKT ~ normal(0,10);
+        beta_EGFToAKT ~ normal(0,10);
+        beta_IGFToAKT ~ normal(0,10);
+        beta_RasToAKT ~ normal(0,10);
+        beta0_RasAKTToRaf ~ normal(0,10);
+        beta_RasToRaf ~ normal(0,10);
+        beta_AKTToRaf ~ normal(0,10);
+        beta0_RafToMek ~ normal(0,10);
+        beta_RafToMek ~ normal(0,10);
+        beta0_MekT0Erk ~ normal(0,10);
+        beta_MekT0Erk ~ normal(0,10);
+        EGF_train ~ normal(mu_EGF, sigma_EGF);
+        IGF_train ~ normal(mu_IGF, sigma_IGF);
+        SOS_train ~ normal(SOS_loc, 5.4);      // likelihood
+        Ras_train ~ normal(Ras_loc, 5.3); //ras_loc = 47
+        AKT_train ~ normal(AKT_loc,5.1);
+        Raf_train ~ normal(Raf_loc,5.3);
+        Mek_train ~ normal(Mek_loc,4.7);
+        Erk_train ~ normal(Erk_loc,3.2);
+    }
+"
+```
+
+```{r, message=FALSE, warning=FALSE}
+mod <- rstan::stan_model(model_code = model_str_IGF)
+```
+
+# Mutilated model
+
+```{r}
+num_samples = 500
+mutilated_model <- function(mu_IGF, sigma_IGF, mu_EGF, sigma_EGF
+                            ,beta0_EGFIGFToSOS, beta_EGFToSOS, beta_IGFToSOS
+                            ,beta0_SOSToRas, beta_SOSToRas
+                            ,beta0_AKT,beta_EGFToAKT, beta_IGFToAKT, beta_RasToAKT
+                            ,beta0_RasAKTToRaf, beta_RasToRaf, beta_AKTToRaf
+                            ,beta0_RafToMek, beta_RafToMek
+                            ,beta0_MekT0Erk, beta_MekT0Erk
+                            ,sos
+                            ) {
+  EGF = rnorm(num_samples, mu_EGF, sigma_EGF)
+  IGF = rnorm(num_samples, mu_IGF, sigma_IGF)
+  SOS = rep(sos, num_samples)
+  Ras = 100 / (1 + exp(-beta0_SOSToRas - SOS * beta_SOSToRas)) + rnorm(num_samples,0,5.5)
+  AKT = 100 / (1 + exp(-beta0_AKT - EGF * beta_EGFToAKT - IGF * beta_IGFToAKT - Ras * beta_RasToAKT)) + rnorm(n = num_samples,0,5.2)
+  Raf = 100 / (1 + exp(-beta0_RasAKTToRaf - Ras * beta_RasToRaf - AKT * beta_AKTToRaf)) + rnorm(n = num_samples,0,5.4)
+  Mek = 100 / (1 + exp(-beta0_RafToMek - Raf * beta_RafToMek)) + rnorm(n = num_samples,0,4.9)
+  Erk = 100 / (1 + exp(-beta0_MekT0Erk - Mek * beta_MekT0Erk)) + rnorm(n = num_samples,0,3.2)
+  return(Erk)
+}
+```
+
+
+```{r, echo = FALSE}
+estimated_y_hmc_list <- list()
+hmc_fit_list <- list()
+means_hmc <- c()
+means_hmc_list <- list()
+start_time <- Sys.time()
+for (num_data_points in ndp) {
+  for (data_count in 1:K) {
+    data_list <- list(D=num_data_points
+                  ,SOS_train = observational_data_list[[data_count]]$SOS[1:num_data_points]
+                  ,AKT_train = observational_data_list[[data_count]]$AKT[1:num_data_points]
+                  ,Raf_train = observational_data_list[[data_count]]$Raf[1:num_data_points]
+                  ,Mek_train = observational_data_list[[data_count]]$Mek[1:num_data_points]
+                  ,Erk_train = observational_data_list[[data_count]]$Erk[1:num_data_points]
+                  ,Ras_train = observational_data_list[[data_count]]$Ras[1:num_data_points]
+                  )
+    
+    #If you get this error (Cluster setup failed. 2 of 2 workers failed to connect.) run these lines:
+    if (Sys.getenv("RSTUDIO") == "1" && !nzchar(Sys.getenv("RSTUDIO_TERM")) &&
+        Sys.info()["sysname"] == "Darwin") {
+      parallel:::setDefaultClusterOptions(setup_strategy = "sequential")
+    }
+    hmc_fit_list[[data_count]] <- rstan::sampling(mod, data=data_list, chains = 2, iter = 4000, warmup = 2000, seed = 1, control = list(max_treedepth = 15, adapt_delta = 0.99))
+    samples_hmc <- rstan::extract(hmc_fit_list[[data_count]], c("mu_EGF", "sigma_EGF"
+                                     ,"mu_IGF", "sigma_IGF"
+                                     ,"beta0_EGFIGFToSOS","beta_EGFToSOS", "beta_IGFToSOS"
+                                     ,"beta0_SOSToRas","beta_SOSToRas"
+                                     ,"beta0_AKT", "beta_EGFToAKT", "beta_IGFToAKT", "beta_RasToAKT"
+                                     ,"beta0_RasAKTToRaf", "beta_RasToRaf", "beta_AKTToRaf"
+                                     ,"beta0_RafToMek", "beta_RafToMek"
+                                     ,"beta0_MekT0Erk", "beta_MekT0Erk"
+                                     ))
+    estimated_y_hmc_list[[data_count]] <-  mutilated_model(mu_IGF = mean(samples_hmc$mu_IGF),
+                                                                          sigma_IGF = mean(samples_hmc$sigma_IGF),
+                                                                          mu_EGF = mean(samples_hmc$mu_EGF),
+                                                                          sigma_EGF = mean(samples_hmc$sigma_EGF),
+                                                                          beta0_EGFIGFToSOS = mean(samples_hmc$beta0_EGFIGFToSOS),
+                                                                          beta_EGFToSOS = mean(samples_hmc$beta_EGFToSOS),
+                                                                          beta_IGFToSOS = mean(samples_hmc$beta_IGFToSOS),
+                                                                          beta0_SOSToRas = mean(samples_hmc$beta0_SOSToRas),
+                                                                          beta_SOSToRas = mean(samples_hmc$beta_SOSToRas),
+                                                                          beta0_AKT = mean(samples_hmc$beta0_AKT),
+                                                                          beta_EGFToAKT = mean(samples_hmc$beta_EGFToAKT),
+                                                                          beta_IGFToAKT = mean(samples_hmc$beta_IGFToAKT),
+                                                                          beta_RasToAKT = mean(samples_hmc$beta_RasToAKT),
+                                                                          beta0_RasAKTToRaf = mean(samples_hmc$beta0_RasAKTToRaf),
+                                                                          beta_RasToRaf = mean(samples_hmc$beta_RasToRaf),
+                                                                          beta_AKTToRaf = mean(samples_hmc$beta_AKTToRaf),
+                                                                          beta0_RafToMek = mean(samples_hmc$beta0_RafToMek),
+                                                                          beta_RafToMek = mean(samples_hmc$beta_RafToMek),
+                                                                          beta0_MekT0Erk = mean(samples_hmc$beta0_MekT0Erk),
+                                                                          beta_MekT0Erk = mean(samples_hmc$beta_MekT0Erk),
+                                                                          sos = 70
+    )
+    means_hmc <- c(means_hmc,abs(mean(estimated_y_hmc_list[[data_count]]) - mean(intervention_data_list[[data_count]]$Erk)))
+  #   
+   }
+  means_hmc_list[[paste0("num_data_points_",num_data_points)]] <- means_hmc
+  means_hmc <- c()
+}
+end_time <- Sys.time()
+end_time - start_time
+```
+
+
+# Misspecified IGF case study:  where EGF and PI3K are hidden and IGF is missed from the model
+
+```{r}
+model_str_IGF_misspecify <- "
+    data {
+        int D;
+        vector[D] SOS_train;
+        vector[D] AKT_train;
+        vector[D] Raf_train;
+        vector[D] Mek_train;
+        vector[D] Erk_train;
+        vector[D] Ras_train;
+    }
+  parameters {
+       real<lower=0> mu_EGF; 
+       real<lower=0> sigma_EGF;
+       real beta0_EGFToSOS; 
+       real<lower=0> beta_EGFToSOS;
+       real beta0_SOSToRas;
+       real<lower=0> beta_SOSToRas;
+       real beta0_AKT;
+       real<lower=0> beta_EGFToAKT;
+       real<lower=0> beta_RasToAKT;
+       real beta0_RasAKTToRaf;
+       real<lower=0> beta_RasToRaf;
+       real<upper=0> beta_AKTToRaf;
+       real beta0_RafToMek;
+       real<lower=0> beta_RafToMek;
+       real beta0_MekT0Erk;
+       real<lower=0> beta_MekT0Erk;
+       vector[D] EGF_train;
+    }
+    transformed parameters {
+      vector[D] SOS_loc;
+      vector[D] Ras_loc;
+      vector[D] AKT_loc;
+      vector[D] Raf_loc;
+      vector[D] Mek_loc;
+      vector[D] Erk_loc;
+      for (i in 1:D){
+        SOS_loc[i] = 100 / (1 + exp(-beta0_EGFToSOS - EGF_train[i] * beta_EGFToSOS));
+        Ras_loc[i] = 100 / (1 + exp(-beta0_SOSToRas -SOS_train[i] * beta_SOSToRas));
+        AKT_loc[i] = 100 / (1 + exp(-beta0_AKT - EGF_train[i] * beta_EGFToAKT - Ras_train[i] * beta_RasToAKT));
+        Raf_loc[i] = 100 / (1 + exp(-beta0_RasAKTToRaf - Ras_train[i] * beta_RasToRaf - AKT_train[i] * beta_AKTToRaf));
+        Mek_loc[i] = 100 / (1 + exp(-beta0_RafToMek - Raf_train[i] * beta_RafToMek));
+        Erk_loc[i] = 100 / (1 + exp(-beta0_MekT0Erk - Mek_train[i] * beta_MekT0Erk));
+      }
+    }
+    model {
+        beta0_EGFToSOS  ~ normal(0, 10); 
+        beta_EGFToSOS  ~ normal(0, 10);
+        mu_EGF ~ normal(37, 3);
+        sigma_EGF ~ normal(1,1);
+        beta0_SOSToRas ~ normal(0,10);
+        beta_SOSToRas ~ normal(0, 10);
+        beta0_AKT ~ normal(0,10);
+        beta_EGFToAKT ~ normal(0,10);
+        beta_RasToAKT ~ normal(0,10);
+        beta0_RasAKTToRaf ~ normal(0,10);
+        beta_RasToRaf ~ normal(0,10);
+        beta_AKTToRaf ~ normal(0,10);
+        beta0_RafToMek ~ normal(0,10);
+        beta_RafToMek ~ normal(0,10);
+        beta0_MekT0Erk ~ normal(0,10);
+        beta_MekT0Erk ~ normal(0,10);
+        EGF_train ~ normal(mu_EGF, sigma_EGF);
+        SOS_train ~ normal(SOS_loc, 5.4);      // likelihood
+        Ras_train ~ normal(Ras_loc, 5.3); //ras_loc = 47
+        AKT_train ~ normal(AKT_loc,5.1);
+        Raf_train ~ normal(Raf_loc,5.3);
+        Mek_train ~ normal(Mek_loc,4.7);
+        Erk_train ~ normal(Erk_loc,3.2);
+    }
+"
+```
+
+```{r, message=FALSE, warning=FALSE}
+mod_misspecify <- rstan::stan_model(model_code = model_str_IGF_misspecify)
+```
+
+# Mutilated model
+
+```{r}
+num_samples = 500
+mutilated_model_misspecify <- function(mu_EGF, sigma_EGF
+                                       ,beta0_EGFToSOS, beta_EGFToSOS
+                                       ,beta0_SOSToRas, beta_SOSToRas
+                                       ,beta0_AKT,beta_EGFToAKT, beta_RasToAKT
+                                       ,beta0_RasAKTToRaf, beta_RasToRaf, beta_AKTToRaf
+                                       ,beta0_RafToMek, beta_RafToMek
+                                       ,beta0_MekT0Erk, beta_MekT0Erk
+                                       ,sos
+) {
+  EGF = rnorm(num_samples, mu_EGF, sigma_EGF)
+  SOS = rep(sos, num_samples)
+  Ras = 100 / (1 + exp(-beta0_SOSToRas - SOS * beta_SOSToRas)) + rnorm(num_samples,0,5.5)
+  AKT = 100 / (1 + exp(-beta0_AKT - EGF * beta_EGFToAKT - Ras * beta_RasToAKT)) + rnorm(n = num_samples,0,5.2)
+  Raf = 100 / (1 + exp(-beta0_RasAKTToRaf - Ras * beta_RasToRaf - AKT * beta_AKTToRaf)) + rnorm(n = num_samples,0,5.4)
+  Mek = 100 / (1 + exp(-beta0_RafToMek - Raf * beta_RafToMek)) + rnorm(n = num_samples,0,4.9)
+  Erk = 100 / (1 + exp(-beta0_MekT0Erk - Mek * beta_MekT0Erk)) + rnorm(n = num_samples,0,3.2)
+  return(Erk)
+}
+```
+
+```{r}
+cluster = makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+```
+
+```{r}
+#hmc_fit_list_misspecify <- list()
+vb_fit_list_misspecify <- list()
+ndp = c(140, 160, 200)
+start_time <- Sys.time()
+for (data_count in 1:K) {
+  print(data_count)
+  # hmc_fit_list_misspecify[[data_count]] <- foreach (num_data_points=ndp) %dopar% rstan::sampling(mod_misspecify, data=list(D=num_data_points
+  #                 ,SOS_train = observational_data_list[[data_count]]$SOS[1:num_data_points]
+  #                 ,AKT_train = observational_data_list[[data_count]]$AKT[1:num_data_points]
+  #                 ,Raf_train = observational_data_list[[data_count]]$Raf[1:num_data_points]
+  #                 ,Mek_train = observational_data_list[[data_count]]$Mek[1:num_data_points]
+  #                 ,Erk_train = observational_data_list[[data_count]]$Erk[1:num_data_points]
+  #                 ,Ras_train = observational_data_list[[data_count]]$Ras[1:num_data_points]),
+  #                 chains = 2, iter = 4000, warmup = 2000, seed = 1, control = list(max_treedepth = 15, adapt_delta = 0.99))
+  vb_fit_list_misspecify[[data_count]] <- foreach (num_data_points=ndp) %dopar% rstan::vb(mod_misspecify, data=list(D=num_data_points
+                  ,SOS_train = observational_data_list[[data_count]]$SOS[1:num_data_points]
+                  ,AKT_train = observational_data_list[[data_count]]$AKT[1:num_data_points]
+                  ,Raf_train = observational_data_list[[data_count]]$Raf[1:num_data_points]
+                  ,Mek_train = observational_data_list[[data_count]]$Mek[1:num_data_points]
+                  ,Erk_train = observational_data_list[[data_count]]$Erk[1:num_data_points]
+                  ,Ras_train = observational_data_list[[data_count]]$Ras[1:num_data_points]),
+                  algorithm = "fullrank")
+}
+end_time <- Sys.time()
+end_time - start_time
+#saveRDS(hmc_fit_list_misspecify,"data/Case3/output/hmc_fit_list_misspecify_Case3.RData") 
+```
+```{r}
+#hmc_fit_list <- list()
+vb_fit_list <- list()
+start_time <- Sys.time()
+for (data_count in 1:K) {
+  print(data_count)
+  # hmc_fit_list[[data_count]] <- foreach (num_data_points=ndp) %dopar% rstan::sampling(mod, data=list(D=num_data_points
+  #                 ,SOS_train = observational_data_list[[data_count]]$SOS[1:num_data_points]
+  #                 ,AKT_train = observational_data_list[[data_count]]$AKT[1:num_data_points]
+  #                 ,Raf_train = observational_data_list[[data_count]]$Raf[1:num_data_points]
+  #                 ,Mek_train = observational_data_list[[data_count]]$Mek[1:num_data_points]
+  #                 ,Erk_train = observational_data_list[[data_count]]$Erk[1:num_data_points]
+  #                 ,Ras_train = observational_data_list[[data_count]]$Ras[1:num_data_points]),
+  #                 chains = 2, iter = 4000, warmup = 2000, seed = 1, control = list(max_treedepth = 15, adapt_delta = 0.99))
+  vb_fit_list_misspecify[[data_count]] <- foreach (num_data_points=ndp) %dopar% rstan::vb(mod, data=list(D=num_data_points
+                  ,SOS_train = observational_data_list[[data_count]]$SOS[1:num_data_points]
+                  ,AKT_train = observational_data_list[[data_count]]$AKT[1:num_data_points]
+                  ,Raf_train = observational_data_list[[data_count]]$Raf[1:num_data_points]
+                  ,Mek_train = observational_data_list[[data_count]]$Mek[1:num_data_points]
+                  ,Erk_train = observational_data_list[[data_count]]$Erk[1:num_data_points]
+                  ,Ras_train = observational_data_list[[data_count]]$Ras[1:num_data_points]),
+                  algorithm = "fullrank")
+}
+end_time <- Sys.time()
+end_time - start_time
+#saveRDS(hmc_fit_list,"data/Case3/output/hmc_fit_list_Case3.RData") 
+```
+
+```{r, echo = FALSE}
+estimated_y_hmc_list_misspecify <- list()
+means_hmc_misspecify <- c()
+#means_hmc_list_misspecify <- list()
+n=1
+for (num_data_points in ndp) {
+  for (data_count in 1:K) {
+    samples_hmc_misspecify <- rstan::extract(hmc_fit_list_misspecify[[data_count]][[n]], c("mu_EGF", "sigma_EGF"
+                                     ,"beta0_EGFToSOS","beta_EGFToSOS"
+                                     ,"beta0_SOSToRas","beta_SOSToRas"
+                                     ,"beta0_AKT", "beta_EGFToAKT","beta_RasToAKT"
+                                     ,"beta0_RasAKTToRaf", "beta_RasToRaf", "beta_AKTToRaf"
+                                     ,"beta0_RafToMek", "beta_RafToMek"
+                                     ,"beta0_MekT0Erk", "beta_MekT0Erk"
+                                     ))
+    estimated_y_hmc_list_misspecify[[data_count]] <-  mutilated_model_misspecify(
+                                                                          mu_EGF = mean(samples_hmc_misspecify$mu_EGF),
+                                                                          sigma_EGF = mean(samples_hmc_misspecify$sigma_EGF),
+                                                                          beta0_EGFToSOS = mean(samples_hmc_misspecify$beta0_EGFToSOS),
+                                                                          beta_EGFToSOS = mean(samples_hmc_misspecify$beta_EGFToSOS),
+                                                                          beta0_SOSToRas = mean(samples_hmc_misspecify$beta0_SOSToRas),
+                                                                          beta_SOSToRas = mean(samples_hmc_misspecify$beta_SOSToRas),
+                                                                          beta0_AKT = mean(samples_hmc_misspecify$beta0_AKT),
+                                                                          beta_EGFToAKT = mean(samples_hmc_misspecify$beta_EGFToAKT),
+                                                                          beta_RasToAKT = mean(samples_hmc_misspecify$beta_RasToAKT),
+                                                                          beta0_RasAKTToRaf = mean(samples_hmc_misspecify$beta0_RasAKTToRaf),
+                                                                          beta_RasToRaf = mean(samples_hmc_misspecify$beta_RasToRaf),
+                                                                          beta_AKTToRaf = mean(samples_hmc_misspecify$beta_AKTToRaf),
+                                                                          beta0_RafToMek = mean(samples_hmc_misspecify$beta0_RafToMek),
+                                                                          beta_RafToMek = mean(samples_hmc_misspecify$beta_RafToMek),
+                                                                          beta0_MekT0Erk = mean(samples_hmc_misspecify$beta0_MekT0Erk),
+                                                                          beta_MekT0Erk = mean(samples_hmc_misspecify$beta_MekT0Erk),
+                                                                          sos = 70
+    )
+    means_hmc_misspecify <- c(means_hmc_misspecify,abs(mean(estimated_y_hmc_list_misspecify[[data_count]]) - mean(intervention_data_list[[data_count]]$Erk)))
+
+  }
+  n = n + 1
+  means_hmc_list_misspecify[[paste0("num_data_points_",num_data_points)]] <- means_hmc_misspecify
+  means_hmc_misspecify <- c()
+}
+#saveRDS(means_hmc_list_misspecify,"data/Case3/output/means_hmc_list_misspecify_Case3.RData") 
+```
+
+
+# Plug-in approach
+
+In this section we want to compare our approach with the plug-in estimator. We have to construct a parametric model for the conditional distributions that appear in the formula of an identifying functional of a causal effect. For case study 2, the do-calculus based formula is as follows:
+
+$$
+\sum_{Mek, Raf, Ras}P(Erk∣AKT,Mek,Raf,Ras,SOS)P(Mek∣AKT,Raf,Ras,SOS)P(Raf∣AKT,Ras,SOS)P(Ras∣SOS)\sum_{SOS'} P(AKT∣Ras,SOS′)P(SOS′)
+$$
+
+In our case, the variables are continuous, hence we have integrals instead of the sum. We can see that we have to make a lot of parametric assumptions about each of the conditional distributions that appear in this formula.
+
+The Stan model is as follows:
+
+```{r}
+model_str_IGF_plug_in1 <- "
+    data {
+        int D;
+        vector[D] SOS_train;
+        vector[D] AKT_train;
+        vector[D] Ras_train;
+    }
+  parameters {
+       real<lower=0> mu_SOS; 
+       real<lower=0> sigma_SOS;
+       real beta0_AKT;
+       real<lower=0> beta_SOSToAKT;
+       real<lower=0> beta_RasToAKT;
+  }
+    transformed parameters {
+      vector[D] AKT_loc;
+      for (i in 1:D){
+        AKT_loc[i] = 100 / (1 + exp(-beta0_AKT - SOS_train[i] * beta_SOSToAKT - Ras_train[i] * beta_RasToAKT));
+      }
+    }
+    model {
+        mu_SOS ~ normal(45, 3);
+        sigma_SOS ~ normal(5,1);
+        beta0_AKT ~ normal(0,10);
+        beta_SOSToAKT ~ normal(0,10);
+        beta_RasToAKT ~ normal(0,10);
+        SOS_train ~ normal(mu_SOS, sigma_SOS);      // likelihood
+        AKT_train ~ normal(AKT_loc,5.1);
+    }
+"
+```
+
+```{r}
+model_str_IGF_plug_in2 <- "
+    data {
+        int D;
+        vector[D] SOS_train;
+        vector[D] AKT_train;
+        vector[D] Raf_train;
+        vector[D] Mek_train;
+        vector[D] Erk_train;
+        vector[D] Ras_train;
+    }
+  parameters {
+       real beta0_SOSToRas;
+       real<lower=0> beta_SOSToRas;
+
+       real beta0_RasAKTToRaf;
+       real<lower=0> beta_RasToRaf;
+       real<upper=0> beta_AKTToRaf;
+       real<lower=0> beta_SOSToRaf;
+       real beta0_RafToMek;
+       real<lower=0> beta_RafToMek;
+       real<lower=0> beta_AKTToMek;
+       real<lower=0> beta_RasToMek;
+       real<lower=0> beta_SOSToMek;
+       real beta0_MekT0Erk;
+       real<lower=0> beta_MekT0Erk;
+       real<lower=0> beta_AKTT0Erk;
+       real<lower=0> beta_RafT0Erk;
+       real<lower=0> beta_RasT0Erk;
+       real<lower=0> beta_SOST0Erk;
+  }
+    transformed parameters {
+      vector[D] Ras_loc;
+      vector[D] Raf_loc;
+      vector[D] Mek_loc;
+      vector[D] Erk_loc;
+      for (i in 1:D){
+        Ras_loc[i] = 100 / (1 + exp(-beta0_SOSToRas -SOS_train[i] * beta_SOSToRas));
+        Raf_loc[i] = 100 / (1 + exp(-beta0_RasAKTToRaf - Ras_train[i] * beta_RasToRaf - AKT_train[i] * beta_AKTToRaf - SOS_train[i] * beta_SOSToRaf));
+        Mek_loc[i] = 100 / (1 + exp(-beta0_RafToMek - Raf_train[i] * beta_RafToMek - AKT_train[i] * beta_AKTToMek - Ras_train[i] * beta_RasToMek - SOS_train[i] * beta_SOSToMek));
+        Erk_loc[i] = 100 / (1 + exp(-beta0_MekT0Erk - Mek_train[i] * beta_MekT0Erk - AKT_train[i] * beta_AKTT0Erk - Raf_train[i] * beta_RafT0Erk - Ras_train[i] * beta_RasT0Erk - SOS_train[i] * beta_SOST0Erk));
+      }
+    }
+    model {
+        beta0_SOSToRas ~ normal(0,10);
+        beta_SOSToRas ~ normal(0,10);
+        beta0_RasAKTToRaf ~ normal(0,10);
+        beta_RasToRaf ~ normal(0,10);
+        beta_AKTToRaf ~ normal(0,10);
+        beta_SOSToRaf ~ normal(0,10);
+        beta0_RafToMek ~ normal(0,10);
+        beta_RafToMek ~ normal(0,10);
+        beta_AKTToMek ~ normal(0,10);
+        beta_RasToMek ~ normal(0,10);
+        beta_SOSToMek ~ normal(0,10);
+        beta0_MekT0Erk ~ normal(0,10);
+        beta_MekT0Erk ~ normal(0,10);
+        beta_AKTT0Erk ~ normal(0,10);
+        beta_RafT0Erk ~ normal(0,10);
+        beta_RasT0Erk ~ normal(0,10);
+        beta_SOST0Erk ~ normal(0,10);
+        Ras_train ~ normal(Ras_loc, 5.3); //ras_loc = 47
+        Raf_train ~ normal(Raf_loc,5.3);
+        Mek_train ~ normal(Mek_loc,4.7);
+        Erk_train ~ normal(Erk_loc,3.2);
+    }
+"
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+mod_plug_in1 <- rstan::stan_model(model_code = model_str_IGF_plug_in1)
+```
+
+```{r, message=FALSE, warning=FALSE}
+mod_plug_in2 <- rstan::stan_model(model_code = model_str_IGF_plug_in2)
+```
+
+# Mutilated model
+
+```{r}
+num_samples = 500
+mutilated_model_plug_in1 <- function(mu_SOS, sigma_SOS,
+                                     beta0_AKT, beta_SOSToAKT, beta_RasToAKT,
+                                     data_count) {
+  SOS = rnorm(num_samples, mu_SOS, sigma_SOS)
+  Ras = observational_data_list[[data_count]]$Ras[1:num_samples]
+  AKT = 100 / (1 + exp(-beta0_AKT - SOS * beta_SOSToAKT - Ras * beta_RasToAKT)) + rnorm(n = num_samples,0,5.2)
+  return(AKT)
+}
+```
+
+```{r}
+num_samples = 500
+mutilated_model_plug_in <- function(mu_SOS, sigma_SOS,
+                                    beta0_SOSToRas, beta_SOSToRas,
+                                    beta0_AKT, beta_SOSToAKT, beta_RasToAKT,
+                                    beta0_RasAKTToRaf, beta_RasToRaf, beta_AKTToRaf, beta_SOSToRaf,
+                                    beta0_RafToMek, beta_RafToMek, beta_AKTToMek, beta_RasToMek, beta_SOSToMek,
+                                    beta0_MekT0Erk, beta_MekT0Erk, beta_AKTT0Erk, beta_RafT0Erk, beta_RasT0Erk, beta_SOST0Erk
+                                    ,sos) {
+  SOS = rep(sos, num_samples)
+  Ras = 100 / (1 + exp(-beta0_SOSToRas - SOS * beta_SOSToRas)) + rnorm(num_samples,0,5.5)
+  AKT = mutilated_model_plug_in1(mu_SOS, sigma_SOS,
+                                     beta0_AKT, beta_SOSToAKT, beta_RasToAKT,
+                                     data_count)
+  Raf = 100 / (1 + exp(-beta0_RasAKTToRaf - Ras * beta_RasToRaf - AKT * beta_AKTToRaf- SOS * beta_SOSToRaf)) + rnorm(n = num_samples,0,5.4)
+  Mek = 100 / (1 + exp(-beta0_RafToMek - Raf * beta_RafToMek- AKT * beta_AKTToMek - Ras * beta_RasToMek - SOS * beta_SOSToMek)) + rnorm(n = num_samples,0,4.9)
+  Erk = 100 / (1 + exp(-beta0_MekT0Erk - Mek * beta_MekT0Erk - AKT * beta_AKTT0Erk - Raf * beta_RafT0Erk - Ras * beta_RasT0Erk - SOS * beta_SOST0Erk)) + rnorm(n = num_samples,0,3.2)
+  return(Erk)
+}
+```
+
+```{r, echo = FALSE}
+estimated_y_hmc_list_plug_in <- list()
+hmc_fit_list_plug_in <- list()
+means_hmc_plug_in <- c()
+means_hmc_list_plug_in <- list()
+start_time <- Sys.time()
+for (num_data_points in ndp) {
+  for (data_count in 1:K) {
+    data_list <- list(D=num_data_points
+                  ,SOS_train = observational_data_list[[data_count]]$SOS[1:num_data_points]
+                  ,AKT_train = observational_data_list[[data_count]]$AKT[1:num_data_points]
+                  ,Raf_train = observational_data_list[[data_count]]$Raf[1:num_data_points]
+                  ,Mek_train = observational_data_list[[data_count]]$Mek[1:num_data_points]
+                  ,Erk_train = observational_data_list[[data_count]]$Erk[1:num_data_points]
+                  ,Ras_train = observational_data_list[[data_count]]$Ras[1:num_data_points]
+                  )
+    
+    #If you get this error (Cluster setup failed. 2 of 2 workers failed to connect.) run these lines:
+    if (Sys.getenv("RSTUDIO") == "1" && !nzchar(Sys.getenv("RSTUDIO_TERM")) &&
+        Sys.info()["sysname"] == "Darwin") {
+      parallel:::setDefaultClusterOptions(setup_strategy = "sequential")
+    }
+    hmc_fit_list_plug_in[[data_count]] <- rstan::sampling(mod_plug_in, data=data_list, chains = 2, iter = 4000, warmup = 2000, seed = 1, control = list(max_treedepth = 15, adapt_delta = 0.99))
+    samples_hmc_plug_in <- rstan::extract(hmc_fit_list_plug_in[[data_count]], c("mu_SOS", "sigma_SOS"
+                                     ,"beta0_SOSToRas","beta_SOSToRas"
+                                     ,"beta0_AKT", "beta_SOSToAKT", "beta_RasToAKT"
+                                     ,"beta0_RasAKTToRaf", "beta_RasToRaf", "beta_AKTToRaf","beta_SOSToRaf"
+                                     ,"beta0_RafToMek", "beta_RafToMek","beta_AKTToMek","beta_RasToMek","beta_SOSToMek"
+                                     ,"beta0_MekT0Erk", "beta_MekT0Erk","beta_AKTT0Erk","beta_RafT0Erk","beta_RasT0Erk","beta_SOST0Erk"
+                                     ))
+    estimated_y_hmc_list_plug_in[[data_count]] <-  mutilated_model_plug_in(
+                                                                          beta0_SOSToRas = mean(samples_hmc_plug_in$beta0_SOSToRas),
+                                                                          beta_SOSToRas = mean(samples_hmc_plug_in$beta_SOSToRas),
+                                                                          beta0_AKT = mean(samples_hmc_plug_in$beta0_AKT),
+                                                                          beta_SOSToAKT = mean(samples_hmc_plug_in$beta_SOSToAKT),
+                                                                          beta_RasToAKT = mean(samples_hmc_plug_in$beta_RasToAKT),
+                                                                          beta0_RasAKTToRaf = mean(samples_hmc_plug_in$beta0_RasAKTToRaf),
+                                                                          beta_RasToRaf = mean(samples_hmc_plug_in$beta_RasToRaf),
+                                                                          beta_AKTToRaf = mean(samples_hmc_plug_in$beta_AKTToRaf),
+                                                                          beta_SOSToRaf = mean(samples_hmc_plug_in$beta_SOSToRaf),
+                                                                          beta0_RafToMek = mean(samples_hmc_plug_in$beta0_RafToMek),
+                                                                          beta_RafToMek = mean(samples_hmc_plug_in$beta_RafToMek),
+                                                                          beta_AKTToMek = mean(samples_hmc_plug_in$beta_AKTToMek),
+                                                                          beta_RasToMek = mean(samples_hmc_plug_in$beta_RasToMek),
+                                                                          beta_SOSToMek = mean(samples_hmc_plug_in$beta_SOSToMek),
+                                                                          beta0_MekT0Erk = mean(samples_hmc_plug_in$beta0_MekT0Erk),
+                                                                          beta_MekT0Erk = mean(samples_hmc_plug_in$beta_MekT0Erk),
+                                                                          beta_AKTT0Erk = mean(samples_hmc_plug_in$beta_AKTT0Erk),
+                                                                          beta_RafT0Erk = mean(samples_hmc_plug_in$beta_RafT0Erk),
+                                                                          beta_RasT0Erk = mean(samples_hmc_plug_in$beta_RasT0Erk),
+                                                                          beta_SOST0Erk = mean(samples_hmc_plug_in$beta_SOST0Erk),
+                                                                          sos = 70
+    )
+    means_hmc_plug_in <- c(means_hmc_plug_in,abs(mean(estimated_y_hmc_list_plug_in[[data_count]]) - mean(intervention_data_list[[data_count]]$Erk)))
+   }
+  means_hmc_list_plug_in[[paste0("num_data_points_",num_data_points)]] <- means_hmc_plug_in
+  means_hmc_plug_in <- c()
+}
+end_time <- Sys.time()
+end_time - start_time
+```
