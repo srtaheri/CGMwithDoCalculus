@@ -1,0 +1,496 @@
+---
+title: "Case Study 2 : The napkin problem"
+author: "Sara Taheri"
+date: "11/24/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+library(rstan)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r}
+D = 300
+startSeed = 250
+x = rep(1,D)
+K = 10
+ndp = c(15,20, 30, 60, 100)
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+```
+
+```{r}
+cluster = makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+```
+
+# Generate observational data
+
+```{r}
+#True parameters
+mu_UXW = 3
+sigma_UXW = 1
+mu_UWY = 5
+sigma_UWY = 1
+
+beta_UXW_to_W = 0.3
+beta_UWY_to_W = 0.5
+
+beta_W_to_R = 0.7
+
+beta_zero_X = 2
+beta_UXW_to_X = 0.23
+beta_R_to_X = 0.1
+
+beta_UWY_to_Y = 0.2
+beta_X_to_Y = 0.4
+
+```
+
+
+```{r}
+# Create observational data
+obs_data_list <- list()
+data_count = 1
+for (seed in startSeed:(startSeed+K-1)) {
+  set.seed(seed)
+  UXW = rnorm(D, mean = mu_UXW, sd = sigma_UXW)
+  UWY = rnorm(D, mean = mu_UWY, sd = sigma_UWY)
+  W =  rgamma(D, shape = 1/(5*(UXW * beta_UXW_to_W + beta_UWY_to_W * UWY)^2), scale = 5*(UXW * beta_UXW_to_W + beta_UWY_to_W * UWY))
+  R =  rnorm(D, W * beta_W_to_R, 6)
+  
+  p1_train = rep(0,D)
+  p1_train = 1/(1+exp(-beta_zero_X - beta_UXW_to_X * UXW - beta_R_to_X * R))
+  X <- rbinom(n = D, size = 1, prob = p1_train)
+  
+  Y =  rnorm(D, UWY * beta_UWY_to_Y + X * beta_X_to_Y, 6)
+  d = data.frame("W" = W, "R" = R, "X" = X, "Y" = Y)
+  obs_data_list[[data_count]] = d
+  data_count = data_count + 1
+}
+```
+
+# Generate interventional data
+
+```{r}
+# Create interventional data
+intv_data_list <- list()
+data_count = 1
+for (seed in startSeed:(startSeed+K-1)) {
+  set.seed(seed)
+  X_intv = x
+  Y_intv = rnorm(D,UWY * beta_UWY_to_Y + X_intv * beta_X_to_Y,6)
+  intv_data_list[[data_count]] = data.frame("W" = obs_data_list[[data_count]]$W, "R" = obs_data_list[[data_count]]$R, "X" = X_intv, "Y" = Y_intv)
+  data_count = data_count + 1
+}
+```
+
+
+# Napkin case study Stan model
+
+```{r}
+model_str_napkin <- "
+    data {
+        int D;
+        vector[D] W;
+        vector[D] R;
+        int<lower=0,upper=1> X[D];
+        vector[D] Y;
+    }
+  parameters {
+       real mu_UXW; 
+       real<lower=0> sigma_UXW;
+       real mu_UWY; 
+       real<lower=0> sigma_UWY;
+       real beta_UXW_to_W; 
+       real beta_UWY_to_W;
+       real beta_W_to_R;
+       real beta_zero_X;
+       real beta_UXW_to_X;
+       real beta_R_to_X;
+       real beta_UWY_to_Y;
+       real beta_X_to_Y;
+       vector[D] UXW;
+       vector[D] UWY;
+    }
+    transformed parameters {
+      vector[D] W_shape;
+      vector[D] W_scale;
+      vector[D] R_loc;
+      vector[D] Y_loc;
+      for (i in 1:D){
+        W_shape[i] = 1/(5*(UXW[i] * beta_UXW_to_W + beta_UWY_to_W * UWY[i])*(UXW[i] * beta_UXW_to_W + beta_UWY_to_W * UWY[i])); 
+        W_scale[i] = fabs(5*(UXW[i] * beta_UXW_to_W + beta_UWY_to_W * UWY[i]));
+        R_loc[i] = W[i] * beta_W_to_R;
+        Y_loc[i] = UWY[i] * beta_UWY_to_Y + X[i] * beta_X_to_Y;
+      }
+    }
+    model {
+        mu_UXW  ~ normal(0, 10); 
+        sigma_UXW  ~ normal(0, 10);
+        mu_UWY  ~ normal(0, 10);
+        sigma_UWY ~ normal(0, 10);
+        beta_UXW_to_W ~ normal(0,10);
+        beta_UWY_to_W ~ normal(0, 10);
+        beta_W_to_R ~ normal(0,10);
+        beta_zero_X ~ normal(0,10);
+        beta_UXW_to_X ~ normal(0,10);
+        beta_R_to_X ~ normal(0,10);
+        beta_UWY_to_Y ~ normal(0,10);
+        beta_X_to_Y ~ normal(0,10);
+        W ~ gamma(W_shape, W_scale);
+        R ~ normal(R_loc, 6);
+        X ~ bernoulli_logit(beta_zero_X + beta_UXW_to_X * UXW + beta_R_to_X * R);
+        Y ~ normal(Y_loc, 6); 
+        UXW ~ normal(mu_UXW,sigma_UXW);
+        UWY ~ normal(mu_UWY,sigma_UWY);
+    }
+"
+```
+
+```{r, message=FALSE, warning=FALSE}
+mod <- rstan::stan_model(model_code = model_str_napkin)
+```
+
+# Mutilated model
+
+```{r}
+mutilated_model <- function(mu_UWY, sigma_UWY, beta_UWY_to_Y, beta_X_to_Y, x, num_data_points, seed) {
+  set.seed(seed)
+  UWY = rnorm(num_data_points, mu_UWY, sigma_UWY)
+  X = x[1:num_data_points]
+  Y = rnorm(num_data_points,
+            UWY * beta_UWY_to_Y + X * beta_X_to_Y
+            , 6)
+  return(Y)
+}
+```
+
+
+```{r}
+hmc_fit_list <- list()
+start_time <- Sys.time()
+for (data_count in 1:K) {
+    print(data_count)
+    hmc_fit_list[[data_count]] <- foreach (num_data_points=ndp) %dopar% rstan::sampling(mod, 
+                                                                                        data = list(D=num_data_points,
+                                                                                                    W=obs_data_list[[data_count]]$W[1:num_data_points],
+                                                                                                    R=obs_data_list[[data_count]]$R[1:num_data_points],
+                                                                                                    X=obs_data_list[[data_count]]$X[1:num_data_points],
+                                                                                                    Y=obs_data_list[[data_count]]$Y[1:num_data_points]),
+                                                                                        chains = 2,
+                                                                                        iter = 3000,
+                                                                                        warmup = 1500,
+                                                                                        seed = 1,
+                                                                                        control = list(max_treedepth = 15))
+    
+}
+end_time <- Sys.time()
+end_time - start_time
+#saveRDS(hmc_fit_list,"data/Case2/output/hmc_fit_list_Case2.RData") 
+```
+
+```{r}
+estimated_y_hmc_list <- list()
+means_hmc <- c()
+means_hmc_list <- list()
+n=1
+
+for (num_data_points in ndp) {
+  for (data_count in 1:K) {
+    samples_hmc <- rstan::extract(hmc_fit_list[[data_count]][[n]], c("mu_UXW","sigma_UXW", "mu_UWY", "sigma_UWY", "beta_UXW_to_W", "beta_UWY_to_W", "beta_W_to_R",
+                                                                     "beta_zero_X", "beta_UXW_to_X", "beta_R_to_X",
+                                                                     "beta_UWY_to_Y", "beta_X_to_Y"))
+    estimated_y_hmc_list[[data_count]] <-  mutilated_model(mu_UWY = mean(samples_hmc$mu_UWY),
+                                                           sigma_UWY = mean(samples_hmc$sigma_UWY),
+                                                           beta_UWY_to_Y = mean(samples_hmc$beta_UWY_to_Y),
+                                                           beta_X_to_Y = mean(samples_hmc$beta_X_to_Y),
+                                                           x = x,
+                                                           num_data_points = num_data_points,
+                                                           seed = startSeed
+    )
+    means_hmc <- c(means_hmc,abs(mean(estimated_y_hmc_list[[data_count]]) - mean(intv_data_list[[data_count]]$Y)))
+  }
+  n=n+1
+  means_hmc_list[[paste0("num_data_points_",num_data_points)]] <- means_hmc
+  means_hmc <- c()
+}
+#saveRDS(means_hmc_list, file = "data/Case2/output/means_hmc_list_Case2.RData")
+```
+
+# Check model misspecification
+
+Let's assume that we misspecified the model by assuming that there are 2 unobserved confounders between W and Y.
+
+# Napkin case study misspecified Stan model
+
+```{r}
+model_str_napkin_misspecify <- "
+    data {
+        int D;
+        vector[D] W;
+        vector[D] R;
+        int<lower=0,upper=1> X[D];
+        vector[D] Y;
+    }
+  parameters {
+       real mu_UXW; 
+       real<lower=0> sigma_UXW;
+       real mu_UWY1; 
+       real<lower=0> sigma_UWY1;
+       real mu_UWY2; 
+       real<lower=0> sigma_UWY2;
+       real beta_UXW_to_W; 
+       real beta_UWY1_to_W;
+       real beta_UWY2_to_W;
+       real beta_W_to_R;
+       real beta_zero_X;
+       real beta_UXW_to_X;
+       real beta_R_to_X;
+       real beta_UWY1_to_Y;
+       real beta_UWY2_to_Y;
+       real beta_X_to_Y;
+       vector[D] UXW;
+       vector[D] UWY1;
+       vector[D] UWY2;
+    }
+    transformed parameters {
+      vector[D] W_shape;
+      vector[D] W_scale;
+      vector[D] R_loc;
+      vector[D] Y_loc;
+      for (i in 1:D){
+        W_shape[i] = 1/(5*(UXW[i] * beta_UXW_to_W + beta_UWY1_to_W * UWY1[i] + beta_UWY2_to_W * UWY2[i])*(UXW[i] * beta_UXW_to_W + beta_UWY1_to_W * UWY1[i] + beta_UWY2_to_W * UWY2[i])); 
+        W_scale[i] = fabs(5*(UXW[i] * beta_UXW_to_W + beta_UWY1_to_W * UWY1[i] + beta_UWY2_to_W * UWY2[i]));
+        R_loc[i] = W[i] * beta_W_to_R;
+        Y_loc[i] = UWY1[i] * beta_UWY1_to_Y + UWY2[i] * beta_UWY2_to_Y + X[i] * beta_X_to_Y;
+      }
+    }
+    model {
+        mu_UXW  ~ normal(0, 10); 
+        sigma_UXW  ~ normal(0, 10);
+        mu_UWY1  ~ normal(0, 10);
+        sigma_UWY1 ~ normal(0, 10);
+        mu_UWY2  ~ normal(0, 10);
+        sigma_UWY2 ~ normal(0, 10);
+        beta_UXW_to_W ~ normal(0,10);
+        beta_UWY1_to_W ~ normal(0, 10);
+        beta_UWY2_to_W ~ normal(0, 10);
+        beta_W_to_R ~ normal(0,10);
+        beta_zero_X ~ normal(0,10);
+        beta_UXW_to_X ~ normal(0,10);
+        beta_R_to_X ~ normal(0,10);
+        beta_UWY1_to_Y ~ normal(0,10);
+        beta_UWY2_to_Y ~ normal(0,10);
+        beta_X_to_Y ~ normal(0,10);
+        W ~ gamma(W_shape, W_scale);
+        R ~ normal(R_loc, 6);
+        X ~ bernoulli_logit(beta_zero_X + beta_UXW_to_X * UXW + beta_R_to_X * R);
+        Y ~ normal(Y_loc, 6); 
+        UXW ~ normal(mu_UXW,sigma_UXW);
+        UWY1 ~ normal(mu_UWY1,sigma_UWY1);
+        UWY2 ~ normal(mu_UWY2,sigma_UWY2);
+    }
+"
+```
+
+```{r, message=FALSE, warning=FALSE}
+mod_misspecify <- rstan::stan_model(model_code = model_str_napkin_misspecify)
+```
+
+# Mutilated model
+
+```{r}
+mutilated_model_misspecify <- function(mu_UWY1, sigma_UWY1, mu_UWY2, sigma_UWY2, beta_UWY1_to_Y, beta_UWY2_to_Y, beta_X_to_Y, x, num_data_points, seed) {
+  set.seed(seed)
+  UWY1 = rnorm(num_data_points, mu_UWY1, sigma_UWY1)
+  UWY2 = rnorm(num_data_points, mu_UWY2, sigma_UWY2)
+  X = x[1:num_data_points]
+  Y = rnorm(num_data_points,
+            UWY1 * beta_UWY1_to_Y +  UWY2 * beta_UWY2_to_Y + X * beta_X_to_Y
+            , 6)
+  return(Y)
+}
+```
+
+```{r}
+hmc_fit_list_misspecify <- list()
+start_time <- Sys.time()
+for (data_count in 1:K) {
+  print(data_count)
+  hmc_fit_list_misspecify[[data_count]] <- foreach (num_data_points=ndp) %dopar% rstan::sampling(mod_misspecify,
+                                                                                                 data = list(D=num_data_points,
+                                                                                                             W=obs_data_list[[data_count]]$W[1:num_data_points],
+                                                                                                             R=obs_data_list[[data_count]]$R[1:num_data_points],
+                                                                                                             X=obs_data_list[[data_count]]$X[1:num_data_points],
+                                                                                                             Y=obs_data_list[[data_count]]$Y[1:num_data_points]),
+                                                                                                 chains = 2,
+                                                                                                 iter = 3000,
+                                                                                                 warmup = 1500,
+                                                                                                 seed = 1,
+                                                                                                 control = list(max_treedepth = 15))
+
+}
+end_time <- Sys.time()
+end_time - start_time
+#saveRDS(hmc_fit_list_misspecify,"data/Case2/output/hmc_fit_list_misspecify_Case2.RData") 
+```
+
+```{r}
+estimated_y_hmc_list_misspecify <- list()
+means_hmc_misspecify <- c()
+means_hmc_list_misspecify <- list()
+n=1
+
+for (num_data_points in ndp) {
+  for (data_count in 1:K) {
+    samples_hmc_misspecify <- rstan::extract(hmc_fit_list_misspecify[[data_count]][[n]],
+    c("mu_UWY1", "sigma_UWY1", "mu_UWY2", "sigma_UWY2", "beta_UWY1_to_Y", "beta_UWY2_to_Y", "beta_X_to_Y"))
+    estimated_y_hmc_list_misspecify[[data_count]] <-  mutilated_model_misspecify(mu_UWY = mean(samples_hmc_misspecify$mu_UWY),
+                                                           sigma_UWY = mean(samples_hmc_misspecify$sigma_UWY),
+                                                           beta_UWY_to_Y = mean(samples_hmc_misspecify$beta_UWY_to_Y),
+                                                           beta_X_to_Y = mean(samples_hmc_misspecify$beta_X_to_Y),
+                                                           x = x,
+                                                           num_data_points = num_data_points,
+                                                           seed = startSeed
+    )
+    means_hmc_misspecify <- c(means_hmc_misspecify,abs(mean(estimated_y_hmc_list_misspecify[[data_count]]) - mean(intv_data_list[[data_count]]$Y)))
+  }
+  n=n+1
+  means_hmc_list_misspecify[[paste0("num_data_points_",num_data_points)]] <- means_hmc_misspecify
+  means_hmc_misspecify <- c()
+}
+#saveRDS(means_hmc_list_misspecify, file = "data/Case2/output/means_hmc_list_misspecify_Case2.RData")
+```
+
+
+# Model Plug in
+
+In this section we want to compare our approach with the plug-in estimator. We have to construct a parametric model for the conditional distributions that appear in the formula of an identifying functional of a causal effect. For case study 4, the do-calculus based formula is as follows:
+
+$$
+P(Y|do(x)) = \frac{\int_{W}P(X,Y∣R,W)P(W)dW}{\int_{W}P(X|R,W)P(W)dW} = \frac{\int_{W}P(Y|X,W,R)P(X|R,W)P(W)dW}{\int_{W}P(X|R,W)P(W)dW}
+$$
+
+```{r}
+model_str_napkin_plug_in <- "
+    data {
+        int D;
+        vector[D] W;
+        vector[D] R;
+        int<lower=0,upper=1> X[D];
+        vector[D] Y;
+    }
+  parameters {
+       real<lower=0> W_shape;
+       real<lower=0> W_scale; 
+       real beta_zero_X;
+       real beta_R_to_X;
+       real beta_W_to_X;
+       real beta_W_to_Y;
+       real beta_R_to_Y;
+       real beta_X_to_Y;
+    }
+    transformed parameters {
+      vector[D] Y_loc;
+      for (i in 1:D){
+        Y_loc[i] = W[i] * beta_W_to_Y + R[i] * beta_R_to_Y + X[i] * beta_X_to_Y;
+      }
+    }
+    model {
+        beta_zero_X ~ normal(0,10);
+        beta_R_to_X ~ normal(0, 10);
+        beta_W_to_X ~ normal(0, 10);
+        beta_W_to_Y ~ normal(0,10);
+        beta_R_to_Y ~ normal(0,10);
+        beta_X_to_Y ~ normal(0,10);
+        W ~ gamma(W_shape, W_scale);
+        //R ~ normal(R_loc, 6);
+        X ~ bernoulli_logit(beta_zero_X + beta_R_to_X * R + beta_W_to_X * W);
+        Y ~ normal(Y_loc, 6); 
+    }
+"
+```
+
+```{r, message=FALSE, warning=FALSE}
+mod_plug_in <- rstan::stan_model(model_code = model_str_napkin_plug_in)
+```
+
+# Mutilated model
+
+```{r}
+mutilated_model_plug_in <- function(W_shape, W_scale, beta_W_to_Y, beta_R_to_Y, beta_X_to_Y, beta_zero_X, beta_R_to_X, beta_W_to_X, x, num_data_points, seed, data_count, obs_data_list) {
+  set.seed(seed)
+  denominator = 0
+  numerator = 0
+  p1 = rep(0,num_data_points)
+  
+  for (i in 1:num_data_points) {
+    p1 = 1/(1+exp(-beta_zero_X - beta_R_to_X * obs_data_list[[data_count]]$R[i] - beta_W_to_X * obs_data_list[[data_count]]$W[i]))
+    denominator = denominator + (dgamma(x=obs_data_list[[data_count]]$W[i], shape = W_shape, scale = W_scale) * dbinom(x = x, size = 1, prob = p1))
+    numerator = numerator + (dgamma(x=obs_data_list[[data_count]]$W[i], shape = W_shape, scale = W_scale) * dbinom(x = x, size = 1, prob = p1) * dnorm(x = obs_data_list[[data_count]]$Y[i], mean = obs_data_list[[data_count]]$W[i] * beta_W_to_Y +  obs_data_list[[data_count]]$R[i] * beta_R_to_Y + x * beta_X_to_Y, sd = 6))
+  }
+  return(numerator/denominator)
+}
+```
+
+```{r}
+hmc_fit_list_plug_in <- list()
+start_time <- Sys.time()
+for (data_count in 1:K) {
+  print(data_count)
+  hmc_fit_list_plug_in[[data_count]] <- foreach (num_data_points=ndp) %dopar% rstan::sampling(mod_plug_in,
+                                                                                              data = list(D=num_data_points,
+                                                                                                          W=obs_data_list[[data_count]]$W[1:num_data_points],
+                                                                                                          R=obs_data_list[[data_count]]$R[1:num_data_points],
+                                                                                                          X=obs_data_list[[data_count]]$X[1:num_data_points],
+                                                                                                          Y=obs_data_list[[data_count]]$Y[1:num_data_points]),
+                                                                                              chains = 2,
+                                                                                              iter = 3000,
+                                                                                              warmup = 1500,
+                                                                                              seed = 1,
+                                                                                              control = list(max_treedepth = 15))
+}
+end_time <- Sys.time()
+end_time - start_time
+#saveRDS(hmc_fit_list_plug_in,"data/Case2/output/hmc_fit_list_plug_in_Case2.RData") 
+```
+
+```{r}
+estimated_y_hmc_list_plug_in <- list()
+means_hmc_plug_in <- c()
+means_hmc_list_plug_in <- list()
+n=1
+
+for (num_data_points in ndp) {
+  for (data_count in 1:K) {
+      samples_hmc_plug_in <- rstan::extract(hmc_fit_list_plug_in[[data_count]][[n]],
+                                            c("W_shape", "W_scale", "beta_zero_X", "beta_R_to_X", "beta_W_to_X", "beta_W_to_Y", "beta_R_to_Y", "beta_X_to_Y"))
+      estimated_y_hmc_list_plug_in[[data_count]] <-  mutilated_model_plug_in(W_shape = mean(samples_vb_plug_in$W_shape),
+                                                                             W_scale = mean(samples_vb_plug_in$W_scale),
+                                                                             beta_zero_X = mean(samples_vb_plug_in$beta_zero_X),
+                                                                             beta_R_to_X = mean(samples_vb_plug_in$beta_R_to_X),
+                                                                             beta_W_to_X = mean(samples_vb_plug_in$beta_W_to_X),
+                                                                             beta_W_to_Y = mean(samples_vb_plug_in$beta_W_to_Y),
+                                                                             beta_R_to_Y = mean(samples_vb_plug_in$beta_R_to_Y),
+                                                                             beta_X_to_Y = mean(samples_vb_plug_in$beta_X_to_Y),
+                                                                             x = x,
+                                                                             num_data_points = num_data_points,
+                                                                             seed = startSeed,
+                                                                             data_count = data_count,
+                                                                             obs_data_list = obs_data_list
+      )
+      means_hmc_plug_in <- c(means_hmc_plug_in,abs(mean(estimated_y_hmc_list_plug_in[[data_count]]) - mean(intv_data_list[[data_count]]$Y)))
+  }
+  n=n+1
+  means_hmc_list_plug_in[[paste0("num_data_points_",num_data_points)]] <- means_hmc_plug_in
+  means_hmc_plug_in <- c()
+}
+#saveRDS(means_hmc_list_plug_in, file = "data/Case2/output/means_hmc_list_plug_in_Case2.RData")
+```
